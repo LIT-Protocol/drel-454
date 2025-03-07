@@ -6,21 +6,35 @@ const CONNECTION_TIMEOUT = 30000; // 30 seconds timeout
 const DEBUG_MODE = true;
 
 async function testNetworkConnection(network: string): Promise<boolean> {
-  console.log(`Testing connection to network: ${network}`);
-
-  const litNodeClient = new LitJsSdk.LitNodeClientNodeJs({
-    alertWhenUnauthorized: false,
-    litNetwork: network as any,
-    debug: DEBUG_MODE,
-  });
-
+  let litNodeClient: LitJsSdk.LitNodeClientNodeJs | null = null;
+  
   try {
+    console.log(`Testing connection to network: ${network}`);
+    
+    litNodeClient = new LitJsSdk.LitNodeClientNodeJs({
+      alertWhenUnauthorized: false,
+      litNetwork: network as any,
+      debug: DEBUG_MODE,
+    });
+
     await litNodeClient.connect();
     console.log(`✅ Successfully connected to ${network}`);
     return true;
   } catch (error) {
     console.error(`❌ Failed to connect to ${network}:`, error);
     return false;
+  } finally {
+    // Cleanup connection if possible
+    if (litNodeClient) {
+      try {
+        // @ts-ignore - disconnect might not be in types but often exists
+        if (typeof litNodeClient.disconnect === 'function') {
+          await litNodeClient.disconnect();
+        }
+      } catch (error) {
+        console.warn(`Warning: Failed to disconnect from ${network}:`, error);
+      }
+    }
   }
 }
 
@@ -29,44 +43,38 @@ async function testNetworkConnection(network: string): Promise<boolean> {
  */
 async function runNetworkTests() {
   console.log("Starting Lit Protocol network connectivity tests");
-
+  
   let failures = 0;
-
-  for (const network of NETWORKS) {
-    try {
-      const success = await Promise.race([
+  const results = await Promise.allSettled(
+    NETWORKS.map(network =>
+      Promise.race([
         testNetworkConnection(network),
         new Promise<boolean>((_, reject) =>
           setTimeout(
-            () =>
-              reject(
-                new Error(
-                  `Connection to ${network} timed out after ${CONNECTION_TIMEOUT}ms`
-                )
-              ),
+            () => reject(new Error(`Connection to ${network} timed out after ${CONNECTION_TIMEOUT}ms`)),
             CONNECTION_TIMEOUT
           )
         ),
-      ]);
+      ])
+    )
+  );
 
-      if (!success) failures++;
-    } catch (error) {
-      console.error(`Test for ${network} failed:`, error);
+  results.forEach((result, index) => {
+    if (result.status === 'rejected' || (result.status === 'fulfilled' && !result.value)) {
       failures++;
     }
-  }
+  });
 
   console.log(
-    `\nNetwork tests completed. ${NETWORKS.length - failures}/${
-      NETWORKS.length
-    } networks accessible.`
+    `\nNetwork tests completed. ${NETWORKS.length - failures}/${NETWORKS.length} networks accessible.`
   );
 
   if (failures > 0) {
     console.error(`Failed to connect to ${failures} network(s).`);
-    process.exit(1); // Exit with error code for CI to detect failure
+    process.exit(1);
   } else {
     console.log("All network tests passed! 🎉");
+    process.exit(0); // Explicitly exit with success code
   }
 }
 
