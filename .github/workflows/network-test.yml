@@ -5,31 +5,31 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  schedule:
-    - cron: '0 */6 * * *'  # Run every 6 hours to monitor network stability
+  # schedule:
+  #   - cron: '0 */6 * * *'  # Run every 6 hours to monitor network stability
 
 jobs:
   test-network-connectivity:
     runs-on: ubuntu-latest
-    timeout-minutes: 5  # Add timeout for the entire job
+    timeout-minutes: 5
     
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 1
     
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '18'
-        cache: 'npm'
+        # Disable caching completely if still having issues
+        # cache: 'npm'
         
-    - name: Install dependencies
-      run: npm ci
-      timeout-minutes: 3  # Add timeout for installation
-      
-    - name: Run network connectivity tests
+    - name: Install and Test
       run: |
+        npm ci
         npx ts-node test/network-connectivity.test.ts
-      timeout-minutes: 2  # Add timeout for tests
+      timeout-minutes: 4
       
     - name: Notify on failure
       if: failure()
